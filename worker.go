@@ -159,6 +159,17 @@ func (p *Pool) SubmitFunc(ctx context.Context, fn func(ctx context.Context) erro
 	return p.Submit(ctx, TaskFunc(fn))
 }
 
+// Running 报告工作池是否仍在接收任务。
+//
+// 新建的工作池返回 true；Shutdown 一旦被调用就立即返回 false，
+// 即使此时队列里仍有待执行的任务、执行中的任务也尚未结束。
+// 该方法并发安全，可与 Submit、Stats、Shutdown 同时调用。
+func (p *Pool) Running() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return !p.closed
+}
+
 // Errors 返回只读的错误通道，用于收集重试耗尽后仍然失败的任务错误。
 //
 // 投递是非阻塞的：通道缓冲满时错误会被丢弃，但 Stats().Failed 仍会累加，
