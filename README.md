@@ -18,6 +18,7 @@ go get github.com/kimjayson/golang-worker
 | 执行超时 | `TaskTimeout` 为每次尝试派生带超时的 ctx |
 | panic 兜底 | worker 内 `recover`，异常转为错误，协程不退出 |
 | 优雅关闭 | 先停止接收、再排空队列与执行中任务，支持超时兜底 |
+| 运行状态查询 | `Running()` 只读判断工作池是否仍在接收任务 |
 | 运行统计 | 提交数 / 完成数 / 失败数 / 重试数 / 并发数 / 排队数 |
 | 错误出口 | 只读错误通道，非阻塞投递，不影响执行 |
 
@@ -124,6 +125,18 @@ pool.Submit(ctx, worker.TaskFunc(func(ctx context.Context) error {
 - 工作池关闭后返回 `ErrPoolClosed`；
 - 提交 `nil` 返回 `ErrNilTask`。
 
+### 运行状态
+
+`Running()` 是只读的状态查询，用于健康检查、关闭编排，以及在测试里断言状态：
+
+```go
+if pool.Running() {
+	// 仍在接收任务
+}
+```
+
+它只反映「是否还接单」：`Shutdown` 一旦被调用就立刻变成 `false`，哪怕队列里还有任务没跑完。想知道「还剩多少活」，请看 `Stats()` 的 `Queued` 与 `Active`。
+
 ### 关闭语义
 
 `Shutdown(ctx)` 分三段：
@@ -188,7 +201,7 @@ v1 里 `ctx` 传入后并未真正传给任务，v2 修正了这一点；同时�
 ├── options.go           # Options 与函数式选项
 ├── worker.go            # Pool 主体：提交、执行、重试、关闭
 ├── stats.go             # 统计快照
-├── worker_test.go       # 14 个用例，覆盖并发/重试/超时/关闭/panic
+├── worker_test.go       # 15 个用例，覆盖并发/重试/超时/关闭/panic
 ├── cmd/demo/            # 可运行示例
 ├── Makefile
 └── .github/workflows/   # CI: gofmt + vet + build + race test

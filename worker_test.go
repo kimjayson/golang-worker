@@ -391,3 +391,59 @@ func TestErrorsAggregatedFromMultipleTasks(t *testing.T) {
 		t.Fatalf("统计不符合预期: %+v", st)
 	}
 }
+
+func TestRunningReflectsShutdownState(t *testing.T) {
+	p := New(WithWorkers(1), WithQueueSize(2))
+
+	if !p.Running() {
+		t.Fatal("新建的工作池应当处于运行状态")
+	}
+
+	release := make(chan struct{})
+	err := p.Submit(context.Background(), TaskFunc(func(ctx context.Context) error {
+		<-release
+		return nil
+	}))
+	if err != nil {
+		t.Fatalf("提交任务失败: %v", err)
+	}
+
+	if !p.Running() {
+		t.Fatal("执行任务期间工作池仍应处于运行状态")
+	}
+
+	// Shutdown 会阻塞在排空阶段，此时 Running 必须已经变成 false。
+	shutdownDone := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		shutdownDone <- p.Shutdown(ctx)
+	}()
+
+	deadline := time.After(time.Second)
+	for p.Running() {
+		select {
+		case <-deadline:
+			t.Fatal("Shutdown 调用后 Running 应当立即返回 false")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	// 关闭过程中不再接收新任务，与 Submit 的语义保持一致。
+	err = p.Submit(context.Background(), TaskFunc(func(ctx context.Context) error {
+		return nil
+	}))
+	if !errors.Is(err, ErrPoolClosed) {
+		t.Fatalf("关闭过程中提交应当返回 ErrPoolClosed, 实际 %v", err)
+	}
+
+	close(release)
+	if err := <-shutdownDone; err != nil {
+		t.Fatalf("关闭工作池失败: %v", err)
+	}
+
+	if p.Running() {
+		t.Fatal("Shutdown 返回后工作池不应再处于运行状态")
+	}
+}
